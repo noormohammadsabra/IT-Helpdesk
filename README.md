@@ -13,6 +13,17 @@ Week 3 focuses on the application foundation:
 - Role-based authorization.
 - Login page and authenticated dashboard/index page.
 
+## Week 4 Scope
+
+Week 4 focuses on ticket management:
+
+- Ticket category setup.
+- Ticket creation.
+- Ticket listing.
+- Ticket editing and status updates.
+- Ticket deletion.
+- React frontend connected to ticket APIs.
+
 ## Technology Stack
 
 | Layer | Tool |
@@ -27,10 +38,10 @@ Week 3 focuses on the application foundation:
 
 ```text
 IT-Helpdesk/
-├── frontend/   React user interface
-├── backend/    ASP.NET Core Web API
-├── database/   SQL setup scripts
-└── README.md
++-- frontend/   React user interface
++-- backend/    ASP.NET Core Web API
++-- database/   SQL setup scripts
++-- README.md
 ```
 
 ## Demo Users
@@ -57,7 +68,7 @@ cd backend
 dotnet run --urls http://127.0.0.1:5090
 ```
 
-The API will create the `ITHelpDesk` database, roles, and demo users automatically if they do not already exist.
+The API will create the `ITHelpDesk` database, roles, demo users, ticket lookups, and seed tickets automatically if they do not already exist.
 
 ## Run Frontend
 
@@ -84,6 +95,13 @@ http://localhost:5173
 | GET | `/api/auth/me` | Current logged-in user | JWT required |
 | GET | `/api/dashboard` | Dashboard data | JWT required |
 | GET | `/api/admin/users` | User list | Admin role only |
+| GET | `/api/ticket-categories` | Ticket categories | JWT required |
+| GET | `/api/ticket-priorities` | Ticket priorities | JWT required |
+| GET | `/api/ticket-statuses` | Ticket statuses | JWT required |
+| GET | `/api/tickets` | List tickets | JWT required |
+| POST | `/api/tickets` | Create ticket | JWT required |
+| PUT | `/api/tickets/{id}` | Update ticket | JWT required |
+| DELETE | `/api/tickets/{id}` | Delete ticket | JWT required |
 
 ## Postman Login Test
 
@@ -114,3 +132,31 @@ Authorization: Bearer YOUR_TOKEN_HERE
 - Admin can access `/api/admin/users`.
 - Employee can log in and open `/api/dashboard`.
 - Employee receives `403 Forbidden` when trying to access `/api/admin/users`.
+
+## Ticket CRUD Test
+
+After login, use the JWT token to create a ticket:
+
+```http
+POST http://127.0.0.1:5090/api/tickets
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN_HERE
+```
+
+Body:
+
+```json
+{
+  "title": "Laptop battery issue",
+  "description": "Battery drains very quickly and needs IT support.",
+  "categoryId": 1,
+  "priorityId": 2
+}
+```
+
+Then list tickets:
+
+```http
+GET http://127.0.0.1:5090/api/tickets
+Authorization: Bearer YOUR_TOKEN_HERE
+```

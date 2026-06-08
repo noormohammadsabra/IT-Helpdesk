@@ -66,15 +66,88 @@ public sealed class DatabaseInitializer
             END
             """);
 
+        Execute(connection, """
+            IF OBJECT_ID('TicketCategory', 'U') IS NULL
+            BEGIN
+                CREATE TABLE TicketCategory
+                (
+                    Id INT IDENTITY(1,1) PRIMARY KEY,
+                    CategoryName NVARCHAR(100) NOT NULL UNIQUE
+                );
+            END
+            """);
+
+        Execute(connection, """
+            IF OBJECT_ID('TicketPriority', 'U') IS NULL
+            BEGIN
+                CREATE TABLE TicketPriority
+                (
+                    Id INT IDENTITY(1,1) PRIMARY KEY,
+                    PriorityName NVARCHAR(50) NOT NULL UNIQUE
+                );
+            END
+            """);
+
+        Execute(connection, """
+            IF OBJECT_ID('TicketStatus', 'U') IS NULL
+            BEGIN
+                CREATE TABLE TicketStatus
+                (
+                    Id INT IDENTITY(1,1) PRIMARY KEY,
+                    StatusName NVARCHAR(50) NOT NULL UNIQUE
+                );
+            END
+            """);
+
+        Execute(connection, """
+            IF OBJECT_ID('Ticket', 'U') IS NULL
+            BEGIN
+                CREATE TABLE Ticket
+                (
+                    Id INT IDENTITY(1,1) PRIMARY KEY,
+                    TicketNumber AS ('HD-' + RIGHT('0000' + CONVERT(VARCHAR(10), Id), 4)) PERSISTED,
+                    Title NVARCHAR(200) NOT NULL,
+                    Description NVARCHAR(MAX) NOT NULL,
+                    CreatedByUserAccountId INT NOT NULL,
+                    TicketCategoryId INT NOT NULL,
+                    TicketPriorityId INT NOT NULL,
+                    TicketStatusId INT NOT NULL,
+                    CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                    UpdatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                    CONSTRAINT FK_Ticket_UserAccount FOREIGN KEY (CreatedByUserAccountId) REFERENCES UserAccount(Id),
+                    CONSTRAINT FK_Ticket_TicketCategory FOREIGN KEY (TicketCategoryId) REFERENCES TicketCategory(Id),
+                    CONSTRAINT FK_Ticket_TicketPriority FOREIGN KEY (TicketPriorityId) REFERENCES TicketPriority(Id),
+                    CONSTRAINT FK_Ticket_TicketStatus FOREIGN KEY (TicketStatusId) REFERENCES TicketStatus(Id)
+                );
+            END
+            """);
+
         foreach (var roleName in new[] { "Admin", "Agent", "Manager", "Employee" })
         {
             UpsertRole(connection, roleName);
+        }
+
+        foreach (var categoryName in new[] { "Hardware", "Software", "Network", "Email", "Access Request", "Other" })
+        {
+            UpsertLookup(connection, "TicketCategory", "CategoryName", categoryName);
+        }
+
+        foreach (var priorityName in new[] { "Low", "Medium", "High", "Critical" })
+        {
+            UpsertLookup(connection, "TicketPriority", "PriorityName", priorityName);
+        }
+
+        foreach (var statusName in new[] { "Open", "In Progress", "Pending", "Resolved", "Closed" })
+        {
+            UpsertLookup(connection, "TicketStatus", "StatusName", statusName);
         }
 
         SeedUser(connection, "Admin User", "admin@ids.com", "Admin", "IT Administration");
         SeedUser(connection, "Support Agent", "agent@ids.com", "Agent", "IT Support");
         SeedUser(connection, "Support Manager", "manager@ids.com", "Manager", "IT Management");
         SeedUser(connection, "Employee User", "employee@ids.com", "Employee", "Operations");
+        SeedTicket(connection, "Email access issue", "User cannot send or receive company emails.", "Email", "High", "Open", "employee@ids.com");
+        SeedTicket(connection, "Printer not responding", "The office printer is not responding from employee laptops.", "Hardware", "Medium", "In Progress", "employee@ids.com");
 
         await Task.CompletedTask;
     }
@@ -101,6 +174,20 @@ public sealed class DatabaseInitializer
         command.ExecuteNonQuery();
     }
 
+    private static void UpsertLookup(SqlConnection connection, string tableName, string columnName, string value)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandTimeout = 120;
+        command.CommandText = $"""
+            IF NOT EXISTS (SELECT 1 FROM {tableName} WHERE {columnName} = @Value)
+            BEGIN
+                INSERT INTO {tableName} ({columnName}) VALUES (@Value);
+            END
+            """;
+        command.Parameters.AddWithValue("@Value", value);
+        command.ExecuteNonQuery();
+    }
+
     private void SeedUser(SqlConnection connection, string fullName, string email, string roleName, string department)
     {
         using var command = connection.CreateCommand();
@@ -119,6 +206,55 @@ public sealed class DatabaseInitializer
         command.Parameters.AddWithValue("@PasswordHash", _passwordService.HashPassword("Password123!"));
         command.Parameters.AddWithValue("@RoleName", roleName);
         command.Parameters.AddWithValue("@Department", department);
+        command.ExecuteNonQuery();
+    }
+
+    private static void SeedTicket(
+        SqlConnection connection,
+        string title,
+        string description,
+        string categoryName,
+        string priorityName,
+        string statusName,
+        string creatorEmail)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandTimeout = 120;
+        command.CommandText = """
+            IF NOT EXISTS (SELECT 1 FROM Ticket WHERE Title = @Title)
+            BEGIN
+                INSERT INTO Ticket
+                (
+                    Title,
+                    Description,
+                    CreatedByUserAccountId,
+                    TicketCategoryId,
+                    TicketPriorityId,
+                    TicketStatusId
+                )
+                SELECT
+                    @Title,
+                    @Description,
+                    ua.Id,
+                    tc.Id,
+                    tp.Id,
+                    ts.Id
+                FROM UserAccount ua
+                CROSS JOIN TicketCategory tc
+                CROSS JOIN TicketPriority tp
+                CROSS JOIN TicketStatus ts
+                WHERE ua.Email = @CreatorEmail
+                  AND tc.CategoryName = @CategoryName
+                  AND tp.PriorityName = @PriorityName
+                  AND ts.StatusName = @StatusName;
+            END
+            """;
+        command.Parameters.AddWithValue("@Title", title);
+        command.Parameters.AddWithValue("@Description", description);
+        command.Parameters.AddWithValue("@CreatorEmail", creatorEmail);
+        command.Parameters.AddWithValue("@CategoryName", categoryName);
+        command.Parameters.AddWithValue("@PriorityName", priorityName);
+        command.Parameters.AddWithValue("@StatusName", statusName);
         command.ExecuteNonQuery();
     }
 }

@@ -44,3 +44,88 @@ WHERE NOT EXISTS
     WHERE Role.RoleName = Roles.RoleName
 );
 GO
+
+IF OBJECT_ID('TicketCategory', 'U') IS NULL
+BEGIN
+    CREATE TABLE TicketCategory
+    (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        CategoryName NVARCHAR(100) NOT NULL UNIQUE
+    );
+END
+GO
+
+IF OBJECT_ID('TicketPriority', 'U') IS NULL
+BEGIN
+    CREATE TABLE TicketPriority
+    (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        PriorityName NVARCHAR(50) NOT NULL UNIQUE
+    );
+END
+GO
+
+IF OBJECT_ID('TicketStatus', 'U') IS NULL
+BEGIN
+    CREATE TABLE TicketStatus
+    (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        StatusName NVARCHAR(50) NOT NULL UNIQUE
+    );
+END
+GO
+
+IF OBJECT_ID('Ticket', 'U') IS NULL
+BEGIN
+    CREATE TABLE Ticket
+    (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        TicketNumber AS ('HD-' + RIGHT('0000' + CONVERT(VARCHAR(10), Id), 4)) PERSISTED,
+        Title NVARCHAR(200) NOT NULL,
+        Description NVARCHAR(MAX) NOT NULL,
+        CreatedByUserAccountId INT NOT NULL,
+        TicketCategoryId INT NOT NULL,
+        TicketPriorityId INT NOT NULL,
+        TicketStatusId INT NOT NULL,
+        CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        UpdatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_Ticket_UserAccount FOREIGN KEY (CreatedByUserAccountId) REFERENCES UserAccount(Id),
+        CONSTRAINT FK_Ticket_TicketCategory FOREIGN KEY (TicketCategoryId) REFERENCES TicketCategory(Id),
+        CONSTRAINT FK_Ticket_TicketPriority FOREIGN KEY (TicketPriorityId) REFERENCES TicketPriority(Id),
+        CONSTRAINT FK_Ticket_TicketStatus FOREIGN KEY (TicketStatusId) REFERENCES TicketStatus(Id)
+    );
+END
+GO
+
+INSERT INTO TicketCategory (CategoryName)
+SELECT CategoryName
+FROM (VALUES ('Hardware'), ('Software'), ('Network'), ('Email'), ('Access Request'), ('Other')) AS Categories(CategoryName)
+WHERE NOT EXISTS
+(
+    SELECT 1
+    FROM TicketCategory
+    WHERE TicketCategory.CategoryName = Categories.CategoryName
+);
+GO
+
+INSERT INTO TicketPriority (PriorityName)
+SELECT PriorityName
+FROM (VALUES ('Low'), ('Medium'), ('High'), ('Critical')) AS Priorities(PriorityName)
+WHERE NOT EXISTS
+(
+    SELECT 1
+    FROM TicketPriority
+    WHERE TicketPriority.PriorityName = Priorities.PriorityName
+);
+GO
+
+INSERT INTO TicketStatus (StatusName)
+SELECT StatusName
+FROM (VALUES ('Open'), ('In Progress'), ('Pending'), ('Resolved'), ('Closed')) AS Statuses(StatusName)
+WHERE NOT EXISTS
+(
+    SELECT 1
+    FROM TicketStatus
+    WHERE TicketStatus.StatusName = Statuses.StatusName
+);
+GO

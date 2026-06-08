@@ -30,3 +30,34 @@ public sealed record JwtSettings(
     string Audience,
     string SecretKey,
     int ExpirationMinutes);
+
+public sealed record LookupItem(int Id, string Name);
+
+public sealed record TicketResponse(
+    int Id,
+    string TicketNumber,
+    string Title,
+    string Description,
+    int CategoryId,
+    string CategoryName,
+    int PriorityId,
+    string PriorityName,
+    int StatusId,
+    string StatusName,
+    int CreatedByUserAccountId,
+    string CreatedByName,
+    DateTime CreatedDate,
+    DateTime UpdatedDate);
+
+public sealed record TicketCreateRequest(
+    string Title,
+    string Description,
+    int CategoryId,
+    int PriorityId);
+
+public sealed record TicketUpdateRequest(
+    string Title,
+    string Description,
+    int CategoryId,
+    int PriorityId,
+    int StatusId);
