@@ -32,17 +32,14 @@ public sealed class TicketRepository
     {
         var tickets = new List<TicketResponse>();
 
-        using var connection = new SqlConnection(_connectionString);
-        connection.Open();
-
+        using var connection = CreateConnection();
         using var command = connection.CreateCommand();
-        command.CommandTimeout = 60;
         command.CommandText = $"""
             {TicketSelectSql}
-            WHERE (@CanViewAll = 1 OR t.CreatedByUserAccountId = @UserId)
+            WHERE (@CanViewAll = 1 OR t.CreatedByUserAccountId = @UserId OR t.AssignedToUserAccountId = @UserId)
             ORDER BY t.UpdatedDate DESC, t.Id DESC;
             """;
-        command.Parameters.AddWithValue("@CanViewAll", CanManageAllTickets(role));
+        command.Parameters.AddWithValue("@CanViewAll", CanViewAllTickets(role));
         command.Parameters.AddWithValue("@UserId", userId);
 
         using var reader = command.ExecuteReader();
@@ -56,38 +53,16 @@ public sealed class TicketRepository
 
     public async Task<TicketResponse?> GetTicketAsync(int ticketId, int userId, string role)
     {
-        using var connection = new SqlConnection(_connectionString);
-        connection.Open();
-
-        using var command = connection.CreateCommand();
-        command.CommandTimeout = 60;
-        command.CommandText = $"""
-            {TicketSelectSql}
-            WHERE t.Id = @TicketId
-              AND (@CanViewAll = 1 OR t.CreatedByUserAccountId = @UserId);
-            """;
-        command.Parameters.AddWithValue("@TicketId", ticketId);
-        command.Parameters.AddWithValue("@CanViewAll", CanManageAllTickets(role));
-        command.Parameters.AddWithValue("@UserId", userId);
-
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
-        {
-            return null;
-        }
-
-        return await Task.FromResult(ReadTicket(reader));
+        using var connection = CreateConnection();
+        return await Task.FromResult(GetTicket(connection, ticketId, userId, role));
     }
 
     public async Task<TicketResponse> CreateTicketAsync(TicketCreateRequest request, int userId)
     {
-        using var connection = new SqlConnection(_connectionString);
-        connection.Open();
-
+        using var connection = CreateConnection();
         var openStatusId = GetLookupId(connection, "TicketStatus", "StatusName", "Open");
 
         using var command = connection.CreateCommand();
-        command.CommandTimeout = 60;
         command.CommandText = """
             INSERT INTO Ticket
             (
@@ -117,9 +92,10 @@ public sealed class TicketRepository
         command.Parameters.AddWithValue("@TicketStatusId", openStatusId);
 
         var ticketId = (int)command.ExecuteScalar()!;
+        AddActivity(connection, ticketId, userId, "Ticket Created", $"Ticket was created with title '{request.Title.Trim()}'.");
 
-        return await GetTicketAsync(ticketId, userId, "Admin")
-            ?? throw new InvalidOperationException("Created ticket could not be loaded.");
+        return await Task.FromResult(GetTicket(connection, ticketId, userId, "Admin")
+            ?? throw new InvalidOperationException("Created ticket could not be loaded."));
     }
 
     public async Task<TicketResponse?> UpdateTicketAsync(
@@ -128,22 +104,15 @@ public sealed class TicketRepository
         int userId,
         string role)
     {
-        var existingTicket = await GetTicketAsync(ticketId, userId, role);
-        if (existingTicket is null)
+        using var connection = CreateConnection();
+        var existingTicket = GetTicket(connection, ticketId, userId, role);
+
+        if (existingTicket is null || !CanEditTicket(existingTicket, userId, role))
         {
             return null;
         }
-
-        if (!CanEditTicket(existingTicket.CreatedByUserAccountId, userId, role))
-        {
-            return null;
-        }
-
-        using var connection = new SqlConnection(_connectionString);
-        connection.Open();
 
         using var command = connection.CreateCommand();
-        command.CommandTimeout = 60;
         command.CommandText = """
             UPDATE Ticket
             SET
@@ -163,37 +132,248 @@ public sealed class TicketRepository
         command.Parameters.AddWithValue("@TicketStatusId", request.StatusId);
         command.ExecuteNonQuery();
 
-        return await GetTicketAsync(ticketId, userId, role);
+        AddActivity(connection, ticketId, userId, "Ticket Updated", "Ticket title, description, category, priority, or status was updated.");
+        return await Task.FromResult(GetTicket(connection, ticketId, userId, role));
     }
 
     public async Task<bool> DeleteTicketAsync(int ticketId, int userId, string role)
     {
-        var existingTicket = await GetTicketAsync(ticketId, userId, role);
-        if (existingTicket is null || !CanEditTicket(existingTicket.CreatedByUserAccountId, userId, role))
+        using var connection = CreateConnection();
+        var existingTicket = GetTicket(connection, ticketId, userId, role);
+
+        if (existingTicket is null || !CanEditTicket(existingTicket, userId, role))
         {
             return false;
         }
 
-        using var connection = new SqlConnection(_connectionString);
-        connection.Open();
-
         using var command = connection.CreateCommand();
-        command.CommandTimeout = 60;
         command.CommandText = "DELETE FROM Ticket WHERE Id = @TicketId;";
         command.Parameters.AddWithValue("@TicketId", ticketId);
-
         return await Task.FromResult(command.ExecuteNonQuery() > 0);
+    }
+
+    public async Task<TicketResponse?> AssignTicketAsync(int ticketId, int agentUserId, int actorUserId, string role)
+    {
+        using var connection = CreateConnection();
+        var existingTicket = GetTicket(connection, ticketId, actorUserId, role);
+
+        if (existingTicket is null || !CanManageAllTickets(role))
+        {
+            return null;
+        }
+
+        var agentName = GetUserFullName(connection, agentUserId);
+        if (agentName is null)
+        {
+            return null;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE Ticket
+            SET AssignedToUserAccountId = @AgentUserId,
+                UpdatedDate = SYSUTCDATETIME()
+            WHERE Id = @TicketId;
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+        command.Parameters.AddWithValue("@AgentUserId", agentUserId);
+        command.ExecuteNonQuery();
+
+        AddActivity(connection, ticketId, actorUserId, "Ticket Assigned", $"Ticket assigned to {agentName}.");
+        return await Task.FromResult(GetTicket(connection, ticketId, actorUserId, role));
+    }
+
+    public async Task<TicketResponse?> UpdateTicketStatusAsync(int ticketId, int statusId, int actorUserId, string role)
+    {
+        using var connection = CreateConnection();
+        var existingTicket = GetTicket(connection, ticketId, actorUserId, role);
+
+        if (existingTicket is null || !CanEditTicket(existingTicket, actorUserId, role))
+        {
+            return null;
+        }
+
+        var statusName = GetStatusName(connection, statusId);
+        if (statusName is null)
+        {
+            return null;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE Ticket
+            SET TicketStatusId = @StatusId,
+                UpdatedDate = SYSUTCDATETIME()
+            WHERE Id = @TicketId;
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+        command.Parameters.AddWithValue("@StatusId", statusId);
+        command.ExecuteNonQuery();
+
+        AddActivity(connection, ticketId, actorUserId, "Status Updated", $"Ticket status changed to {statusName}.");
+        return await Task.FromResult(GetTicket(connection, ticketId, actorUserId, role));
+    }
+
+    public async Task<IReadOnlyList<TicketCommentResponse>?> GetCommentsAsync(int ticketId, int userId, string role)
+    {
+        using var connection = CreateConnection();
+        var ticket = GetTicket(connection, ticketId, userId, role);
+
+        if (ticket is null)
+        {
+            return null;
+        }
+
+        var comments = new List<TicketCommentResponse>();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                tc.Id,
+                tc.TicketId,
+                ua.Id,
+                ua.FullName,
+                r.RoleName,
+                tc.CommentText,
+                tc.IsInternal,
+                tc.CreatedDate
+            FROM TicketComment tc
+            INNER JOIN UserAccount ua ON tc.UserAccountId = ua.Id
+            INNER JOIN Role r ON ua.RoleId = r.Id
+            WHERE tc.TicketId = @TicketId
+              AND (@CanViewInternal = 1 OR tc.IsInternal = 0)
+            ORDER BY tc.CreatedDate ASC, tc.Id ASC;
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+        command.Parameters.AddWithValue("@CanViewInternal", CanManageAllTickets(role));
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            comments.Add(new TicketCommentResponse(
+                reader.GetInt32(0),
+                reader.GetInt32(1),
+                reader.GetInt32(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetString(5),
+                reader.GetBoolean(6),
+                reader.GetDateTime(7)));
+        }
+
+        return await Task.FromResult(comments);
+    }
+
+    public async Task<TicketCommentResponse?> AddCommentAsync(
+        int ticketId,
+        TicketCommentRequest request,
+        int userId,
+        string role)
+    {
+        using var connection = CreateConnection();
+        var ticket = GetTicket(connection, ticketId, userId, role);
+
+        if (ticket is null)
+        {
+            return null;
+        }
+
+        var isInternal = request.IsInternal && CanManageAllTickets(role);
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO TicketComment (TicketId, UserAccountId, CommentText, IsInternal)
+            OUTPUT INSERTED.Id
+            VALUES (@TicketId, @UserAccountId, @CommentText, @IsInternal);
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+        command.Parameters.AddWithValue("@UserAccountId", userId);
+        command.Parameters.AddWithValue("@CommentText", request.CommentText.Trim());
+        command.Parameters.AddWithValue("@IsInternal", isInternal);
+        var commentId = (int)command.ExecuteScalar()!;
+
+        AddActivity(
+            connection,
+            ticketId,
+            userId,
+            isInternal ? "Internal Note Added" : "Comment Added",
+            isInternal ? "An internal note was added." : "A visible comment was added.");
+
+        return await Task.FromResult(GetComment(connection, commentId));
+    }
+
+    public async Task<IReadOnlyList<ActivityLogResponse>?> GetActivityAsync(int ticketId, int userId, string role)
+    {
+        using var connection = CreateConnection();
+        var ticket = GetTicket(connection, ticketId, userId, role);
+
+        if (ticket is null)
+        {
+            return null;
+        }
+
+        var activity = new List<ActivityLogResponse>();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                al.Id,
+                al.TicketId,
+                ua.Id,
+                ua.FullName,
+                al.ActionName,
+                al.ActionDetails,
+                al.CreatedDate
+            FROM ActivityLog al
+            INNER JOIN UserAccount ua ON al.UserAccountId = ua.Id
+            WHERE al.TicketId = @TicketId
+            ORDER BY al.CreatedDate ASC, al.Id ASC;
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            activity.Add(new ActivityLogResponse(
+                reader.GetInt32(0),
+                reader.GetInt32(1),
+                reader.GetInt32(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetString(5),
+                reader.GetDateTime(6)));
+        }
+
+        return await Task.FromResult(activity);
+    }
+
+    private SqlConnection CreateConnection()
+    {
+        var connection = new SqlConnection(_connectionString);
+        connection.Open();
+        return connection;
+    }
+
+    private TicketResponse? GetTicket(SqlConnection connection, int ticketId, int userId, string role)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            {TicketSelectSql}
+            WHERE t.Id = @TicketId
+              AND (@CanViewAll = 1 OR t.CreatedByUserAccountId = @UserId OR t.AssignedToUserAccountId = @UserId);
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+        command.Parameters.AddWithValue("@CanViewAll", CanViewAllTickets(role));
+        command.Parameters.AddWithValue("@UserId", userId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadTicket(reader) : null;
     }
 
     private IReadOnlyList<LookupItem> GetLookup(string tableName, string columnName)
     {
         var items = new List<LookupItem>();
 
-        using var connection = new SqlConnection(_connectionString);
-        connection.Open();
-
+        using var connection = CreateConnection();
         using var command = connection.CreateCommand();
-        command.CommandTimeout = 60;
         command.CommandText = $"SELECT Id, {columnName} FROM {tableName} ORDER BY Id;";
 
         using var reader = command.ExecuteReader();
@@ -208,10 +388,81 @@ public sealed class TicketRepository
     private static int GetLookupId(SqlConnection connection, string tableName, string columnName, string value)
     {
         using var command = connection.CreateCommand();
-        command.CommandTimeout = 60;
         command.CommandText = $"SELECT Id FROM {tableName} WHERE {columnName} = @Value;";
         command.Parameters.AddWithValue("@Value", value);
         return (int)command.ExecuteScalar()!;
+    }
+
+    private static string? GetUserFullName(SqlConnection connection, int userId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT FullName FROM UserAccount WHERE Id = @UserId AND IsActive = 1;";
+        command.Parameters.AddWithValue("@UserId", userId);
+        return command.ExecuteScalar() as string;
+    }
+
+    private static string? GetStatusName(SqlConnection connection, int statusId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT StatusName FROM TicketStatus WHERE Id = @StatusId;";
+        command.Parameters.AddWithValue("@StatusId", statusId);
+        return command.ExecuteScalar() as string;
+    }
+
+    private static void AddActivity(SqlConnection connection, int ticketId, int userId, string actionName, string actionDetails)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO ActivityLog (TicketId, UserAccountId, ActionName, ActionDetails)
+            VALUES (@TicketId, @UserAccountId, @ActionName, @ActionDetails);
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+        command.Parameters.AddWithValue("@UserAccountId", userId);
+        command.Parameters.AddWithValue("@ActionName", actionName);
+        command.Parameters.AddWithValue("@ActionDetails", actionDetails);
+        command.ExecuteNonQuery();
+    }
+
+    private static TicketCommentResponse? GetComment(SqlConnection connection, int commentId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                tc.Id,
+                tc.TicketId,
+                ua.Id,
+                ua.FullName,
+                r.RoleName,
+                tc.CommentText,
+                tc.IsInternal,
+                tc.CreatedDate
+            FROM TicketComment tc
+            INNER JOIN UserAccount ua ON tc.UserAccountId = ua.Id
+            INNER JOIN Role r ON ua.RoleId = r.Id
+            WHERE tc.Id = @CommentId;
+            """;
+        command.Parameters.AddWithValue("@CommentId", commentId);
+
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        return new TicketCommentResponse(
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetInt32(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetBoolean(6),
+            reader.GetDateTime(7));
+    }
+
+    private static bool CanViewAllTickets(string role)
+    {
+        return role is "Admin" or "Agent" or "Manager";
     }
 
     private static bool CanManageAllTickets(string role)
@@ -219,9 +470,11 @@ public sealed class TicketRepository
         return role is "Admin" or "Agent" or "Manager";
     }
 
-    private static bool CanEditTicket(int createdByUserId, int currentUserId, string role)
+    private static bool CanEditTicket(TicketResponse ticket, int currentUserId, string role)
     {
-        return createdByUserId == currentUserId || CanManageAllTickets(role);
+        return ticket.CreatedByUserAccountId == currentUserId
+            || ticket.AssignedToUserAccountId == currentUserId
+            || CanManageAllTickets(role);
     }
 
     private static TicketResponse ReadTicket(SqlDataReader reader)
@@ -239,8 +492,10 @@ public sealed class TicketRepository
             reader.GetString(9),
             reader.GetInt32(10),
             reader.GetString(11),
-            reader.GetDateTime(12),
-            reader.GetDateTime(13));
+            reader.IsDBNull(12) ? null : reader.GetInt32(12),
+            reader.IsDBNull(13) ? null : reader.GetString(13),
+            reader.GetDateTime(14),
+            reader.GetDateTime(15));
     }
 
     private const string TicketSelectSql = """
@@ -255,14 +510,17 @@ public sealed class TicketRepository
             tp.PriorityName,
             ts.Id AS StatusId,
             ts.StatusName,
-            ua.Id AS CreatedByUserAccountId,
-            ua.FullName AS CreatedByName,
+            creator.Id AS CreatedByUserAccountId,
+            creator.FullName AS CreatedByName,
+            assigned.Id AS AssignedToUserAccountId,
+            assigned.FullName AS AssignedAgentName,
             t.CreatedDate,
             t.UpdatedDate
         FROM Ticket t
         INNER JOIN TicketCategory tc ON t.TicketCategoryId = tc.Id
         INNER JOIN TicketPriority tp ON t.TicketPriorityId = tp.Id
         INNER JOIN TicketStatus ts ON t.TicketStatusId = ts.Id
-        INNER JOIN UserAccount ua ON t.CreatedByUserAccountId = ua.Id
+        INNER JOIN UserAccount creator ON t.CreatedByUserAccountId = creator.Id
+        LEFT JOIN UserAccount assigned ON t.AssignedToUserAccountId = assigned.Id
         """;
 }

@@ -84,15 +84,57 @@ BEGIN
         Title NVARCHAR(200) NOT NULL,
         Description NVARCHAR(MAX) NOT NULL,
         CreatedByUserAccountId INT NOT NULL,
+        AssignedToUserAccountId INT NULL,
         TicketCategoryId INT NOT NULL,
         TicketPriorityId INT NOT NULL,
         TicketStatusId INT NOT NULL,
         CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
         UpdatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT FK_Ticket_UserAccount FOREIGN KEY (CreatedByUserAccountId) REFERENCES UserAccount(Id),
+        CONSTRAINT FK_Ticket_AssignedUserAccount FOREIGN KEY (AssignedToUserAccountId) REFERENCES UserAccount(Id),
         CONSTRAINT FK_Ticket_TicketCategory FOREIGN KEY (TicketCategoryId) REFERENCES TicketCategory(Id),
         CONSTRAINT FK_Ticket_TicketPriority FOREIGN KEY (TicketPriorityId) REFERENCES TicketPriority(Id),
         CONSTRAINT FK_Ticket_TicketStatus FOREIGN KEY (TicketStatusId) REFERENCES TicketStatus(Id)
+    );
+END
+GO
+
+IF COL_LENGTH('Ticket', 'AssignedToUserAccountId') IS NULL
+BEGIN
+    ALTER TABLE Ticket ADD AssignedToUserAccountId INT NULL;
+    ALTER TABLE Ticket ADD CONSTRAINT FK_Ticket_AssignedUserAccount
+        FOREIGN KEY (AssignedToUserAccountId) REFERENCES UserAccount(Id);
+END
+GO
+
+IF OBJECT_ID('TicketComment', 'U') IS NULL
+BEGIN
+    CREATE TABLE TicketComment
+    (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        TicketId INT NOT NULL,
+        UserAccountId INT NOT NULL,
+        CommentText NVARCHAR(MAX) NOT NULL,
+        IsInternal BIT NOT NULL DEFAULT 0,
+        CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_TicketComment_Ticket FOREIGN KEY (TicketId) REFERENCES Ticket(Id) ON DELETE CASCADE,
+        CONSTRAINT FK_TicketComment_UserAccount FOREIGN KEY (UserAccountId) REFERENCES UserAccount(Id)
+    );
+END
+GO
+
+IF OBJECT_ID('ActivityLog', 'U') IS NULL
+BEGIN
+    CREATE TABLE ActivityLog
+    (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        UserAccountId INT NOT NULL,
+        TicketId INT NOT NULL,
+        ActionName NVARCHAR(200) NOT NULL,
+        ActionDetails NVARCHAR(MAX) NOT NULL,
+        CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_ActivityLog_UserAccount FOREIGN KEY (UserAccountId) REFERENCES UserAccount(Id),
+        CONSTRAINT FK_ActivityLog_Ticket FOREIGN KEY (TicketId) REFERENCES Ticket(Id) ON DELETE CASCADE
     );
 END
 GO

@@ -46,6 +46,8 @@ public sealed record TicketResponse(
     string StatusName,
     int CreatedByUserAccountId,
     string CreatedByName,
+    int? AssignedToUserAccountId,
+    string? AssignedAgentName,
     DateTime CreatedDate,
     DateTime UpdatedDate);
 
@@ -61,3 +63,28 @@ public sealed record TicketUpdateRequest(
     int CategoryId,
     int PriorityId,
     int StatusId);
+
+public sealed record AssignTicketRequest(int AgentUserId);
+
+public sealed record UpdateTicketStatusRequest(int StatusId);
+
+public sealed record TicketCommentRequest(string CommentText, bool IsInternal);
+
+public sealed record TicketCommentResponse(
+    int Id,
+    int TicketId,
+    int UserAccountId,
+    string AuthorName,
+    string AuthorRole,
+    string CommentText,
+    bool IsInternal,
+    DateTime CreatedDate);
+
+public sealed record ActivityLogResponse(
+    int Id,
+    int TicketId,
+    int UserAccountId,
+    string ActorName,
+    string ActionName,
+    string ActionDetails,
+    DateTime CreatedDate);

@@ -24,6 +24,17 @@ Week 4 focuses on ticket management:
 - Ticket deletion.
 - React frontend connected to ticket APIs.
 
+## Workflow Task Scope
+
+The latest task adds MVC architecture and ticket workflow features:
+
+- ASP.NET Core MVC API controllers.
+- Assign tickets to support agents.
+- Update ticket statuses as a workflow.
+- Add public comments and internal notes.
+- Store activity logs for audit/history tracking.
+- View ticket comments and activity timeline from React.
+
 ## Technology Stack
 
 | Layer | Tool |
@@ -68,7 +79,7 @@ cd backend
 dotnet run --urls http://127.0.0.1:5090
 ```
 
-The API will create the `ITHelpDesk` database, roles, demo users, ticket lookups, and seed tickets automatically if they do not already exist.
+The API will create the `ITHelpDesk` database, roles, demo users, ticket lookups, seed tickets, comments table, and activity log table automatically if they do not already exist.
 
 ## Run Frontend
 
@@ -102,6 +113,12 @@ http://localhost:5173
 | POST | `/api/tickets` | Create ticket | JWT required |
 | PUT | `/api/tickets/{id}` | Update ticket | JWT required |
 | DELETE | `/api/tickets/{id}` | Delete ticket | JWT required |
+| POST | `/api/tickets/{id}/assign` | Assign ticket to an agent | Admin, Agent, Manager |
+| POST | `/api/tickets/{id}/status` | Update ticket workflow status | JWT required |
+| GET | `/api/tickets/{id}/comments` | List ticket comments | JWT required |
+| POST | `/api/tickets/{id}/comments` | Add comment or internal note | JWT required |
+| GET | `/api/tickets/{id}/activity` | View ticket history/audit trail | JWT required |
+| GET | `/api/agents` | List assignable users | Admin, Agent, Manager |
 
 ## Postman Login Test
 
@@ -160,3 +177,36 @@ Then list tickets:
 GET http://127.0.0.1:5090/api/tickets
 Authorization: Bearer YOUR_TOKEN_HERE
 ```
+
+## Workflow Test
+
+Assign a ticket to an agent:
+
+```http
+POST http://127.0.0.1:5090/api/tickets/1/assign
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN_HERE
+```
+
+```json
+{
+  "agentUserId": 2
+}
+```
+
+Add a ticket comment:
+
+```http
+POST http://127.0.0.1:5090/api/tickets/1/comments
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN_HERE
+```
+
+```json
+{
+  "commentText": "The issue is being investigated.",
+  "isInternal": false
+}
+```
+
+Managers, agents, and admins can also create internal notes by setting `isInternal` to `true`.

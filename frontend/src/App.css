@@ -1,3 +1,42 @@
 #root {
   min-height: 100vh;
 }
+
+.table-action {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.table-action:hover {
+  background: #f8fafc;
+}
+
+.table-action-danger {
+  border: 1px solid #fecdd3;
+  border-radius: 6px;
+  color: #be123c;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.table-action-danger:hover {
+  background: #fff1f2;
+}
+
+.workflow-button {
+  background: #0f6b6e;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 14px;
+}
+
+.workflow-button:hover {
+  background: #0b575a;
+}
