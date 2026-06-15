@@ -88,3 +88,33 @@ public sealed record ActivityLogResponse(
     string ActionName,
     string ActionDetails,
     DateTime CreatedDate);
+
+public sealed record AttachmentResponse(
+    int Id,
+    int TicketId,
+    string FileName,
+    string ContentType,
+    long FileSizeBytes,
+    string UploadedByName,
+    DateTime UploadedDate);
+
+public sealed record NotificationResponse(
+    int Id,
+    int? TicketId,
+    string Title,
+    string Message,
+    bool IsRead,
+    DateTime CreatedDate);
+
+public sealed record DashboardAnalyticsResponse(
+    int TotalTickets,
+    int OpenTickets,
+    int InProgressTickets,
+    int ResolvedTickets,
+    int CriticalTickets,
+    IReadOnlyList<ChartPoint> TicketsByStatus,
+    IReadOnlyList<ChartPoint> TicketsByCategory,
+    IReadOnlyList<ChartPoint> TicketsByPriority,
+    IReadOnlyList<ChartPoint> TicketsByAgent);
+
+public sealed record ChartPoint(string Name, int Value);

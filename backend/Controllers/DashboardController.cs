@@ -31,4 +31,12 @@ public sealed class DashboardController : ControllerBase
             recentTickets = tickets.Take(5),
         });
     }
+
+    [HttpGet("analytics")]
+    public async Task<IActionResult> GetAnalytics()
+    {
+        var userId = CurrentUser.GetUserId(User);
+        var role = CurrentUser.GetRole(User);
+        return Ok(await _tickets.GetDashboardAnalyticsAsync(userId, role));
+    }
 }

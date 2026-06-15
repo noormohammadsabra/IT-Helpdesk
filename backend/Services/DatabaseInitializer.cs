@@ -167,6 +167,44 @@ public sealed class DatabaseInitializer
             END
             """);
 
+        Execute(connection, """
+            IF OBJECT_ID('TicketAttachment', 'U') IS NULL
+            BEGIN
+                CREATE TABLE TicketAttachment
+                (
+                    Id INT IDENTITY(1,1) PRIMARY KEY,
+                    TicketId INT NOT NULL,
+                    UploadedByUserAccountId INT NOT NULL,
+                    FileName NVARCHAR(255) NOT NULL,
+                    StoredFileName NVARCHAR(255) NOT NULL,
+                    FilePath NVARCHAR(500) NOT NULL,
+                    ContentType NVARCHAR(150) NOT NULL,
+                    FileSizeBytes BIGINT NOT NULL,
+                    UploadedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                    CONSTRAINT FK_TicketAttachment_Ticket FOREIGN KEY (TicketId) REFERENCES Ticket(Id) ON DELETE CASCADE,
+                    CONSTRAINT FK_TicketAttachment_UserAccount FOREIGN KEY (UploadedByUserAccountId) REFERENCES UserAccount(Id)
+                );
+            END
+            """);
+
+        Execute(connection, """
+            IF OBJECT_ID('Notification', 'U') IS NULL
+            BEGIN
+                CREATE TABLE Notification
+                (
+                    Id INT IDENTITY(1,1) PRIMARY KEY,
+                    UserAccountId INT NOT NULL,
+                    TicketId INT NULL,
+                    Title NVARCHAR(200) NOT NULL,
+                    Message NVARCHAR(MAX) NOT NULL,
+                    IsRead BIT NOT NULL DEFAULT 0,
+                    CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                    CONSTRAINT FK_Notification_UserAccount FOREIGN KEY (UserAccountId) REFERENCES UserAccount(Id),
+                    CONSTRAINT FK_Notification_Ticket FOREIGN KEY (TicketId) REFERENCES Ticket(Id) ON DELETE CASCADE
+                );
+            END
+            """);
+
         foreach (var roleName in new[] { "Admin", "Agent", "Manager", "Employee" })
         {
             UpsertRole(connection, roleName);

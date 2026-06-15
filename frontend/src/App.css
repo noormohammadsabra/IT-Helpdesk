@@ -40,3 +40,20 @@
 .workflow-button:hover {
   background: #0b575a;
 }
+
+.form-control {
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  display: block;
+  font-size: 14px;
+  margin-top: 8px;
+  outline: none;
+  padding: 9px 11px;
+  width: 100%;
+}
+
+.form-control:focus {
+  border-color: #0f6b6e;
+  box-shadow: 0 0 0 3px rgb(15 107 110 / 0.15);
+}

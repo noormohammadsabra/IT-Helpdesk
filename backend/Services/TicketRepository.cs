@@ -345,6 +345,192 @@ public sealed class TicketRepository
         return await Task.FromResult(activity);
     }
 
+    public async Task<DashboardAnalyticsResponse> GetDashboardAnalyticsAsync(int userId, string role)
+    {
+        var tickets = await GetTicketsAsync(userId, role);
+        var ticketList = tickets.ToList();
+
+        var byStatus = ticketList
+            .GroupBy(ticket => ticket.StatusName)
+            .Select(group => new ChartPoint(group.Key, group.Count()))
+            .OrderBy(point => point.Name)
+            .ToList();
+
+        var byCategory = ticketList
+            .GroupBy(ticket => ticket.CategoryName)
+            .Select(group => new ChartPoint(group.Key, group.Count()))
+            .OrderByDescending(point => point.Value)
+            .ToList();
+
+        var byPriority = ticketList
+            .GroupBy(ticket => ticket.PriorityName)
+            .Select(group => new ChartPoint(group.Key, group.Count()))
+            .OrderByDescending(point => point.Value)
+            .ToList();
+
+        var byAgent = ticketList
+            .Where(ticket => !string.IsNullOrWhiteSpace(ticket.AssignedAgentName))
+            .GroupBy(ticket => ticket.AssignedAgentName!)
+            .Select(group => new ChartPoint(group.Key, group.Count()))
+            .OrderByDescending(point => point.Value)
+            .ToList();
+
+        return new DashboardAnalyticsResponse(
+            ticketList.Count,
+            ticketList.Count(ticket => ticket.StatusName == "Open"),
+            ticketList.Count(ticket => ticket.StatusName == "In Progress"),
+            ticketList.Count(ticket => ticket.StatusName == "Resolved"),
+            ticketList.Count(ticket => ticket.PriorityName == "Critical"),
+            byStatus,
+            byCategory,
+            byPriority,
+            byAgent);
+    }
+
+    public async Task<AttachmentResponse?> AddAttachmentAsync(
+        int ticketId,
+        int userId,
+        string role,
+        string fileName,
+        string storedFileName,
+        string filePath,
+        string contentType,
+        long fileSizeBytes)
+    {
+        using var connection = CreateConnection();
+        var ticket = GetTicket(connection, ticketId, userId, role);
+
+        if (ticket is null)
+        {
+            return null;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO TicketAttachment
+            (
+                TicketId,
+                UploadedByUserAccountId,
+                FileName,
+                StoredFileName,
+                FilePath,
+                ContentType,
+                FileSizeBytes
+            )
+            OUTPUT INSERTED.Id
+            VALUES
+            (
+                @TicketId,
+                @UploadedByUserAccountId,
+                @FileName,
+                @StoredFileName,
+                @FilePath,
+                @ContentType,
+                @FileSizeBytes
+            );
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+        command.Parameters.AddWithValue("@UploadedByUserAccountId", userId);
+        command.Parameters.AddWithValue("@FileName", fileName);
+        command.Parameters.AddWithValue("@StoredFileName", storedFileName);
+        command.Parameters.AddWithValue("@FilePath", filePath);
+        command.Parameters.AddWithValue("@ContentType", contentType);
+        command.Parameters.AddWithValue("@FileSizeBytes", fileSizeBytes);
+
+        var attachmentId = (int)command.ExecuteScalar()!;
+        AddActivity(connection, ticketId, userId, "Attachment Uploaded", $"File '{fileName}' was uploaded.");
+
+        return await Task.FromResult(GetAttachment(connection, attachmentId));
+    }
+
+    public async Task<IReadOnlyList<AttachmentResponse>?> GetAttachmentsAsync(int ticketId, int userId, string role)
+    {
+        using var connection = CreateConnection();
+        var ticket = GetTicket(connection, ticketId, userId, role);
+
+        if (ticket is null)
+        {
+            return null;
+        }
+
+        var attachments = new List<AttachmentResponse>();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                ta.Id,
+                ta.TicketId,
+                ta.FileName,
+                ta.ContentType,
+                ta.FileSizeBytes,
+                ua.FullName,
+                ta.UploadedDate
+            FROM TicketAttachment ta
+            INNER JOIN UserAccount ua ON ta.UploadedByUserAccountId = ua.Id
+            WHERE ta.TicketId = @TicketId
+            ORDER BY ta.UploadedDate DESC, ta.Id DESC;
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            attachments.Add(ReadAttachment(reader));
+        }
+
+        return await Task.FromResult(attachments);
+    }
+
+    public async Task<(AttachmentResponse Attachment, string FilePath)?> GetAttachmentFileAsync(
+        int ticketId,
+        int attachmentId,
+        int userId,
+        string role)
+    {
+        using var connection = CreateConnection();
+        var ticket = GetTicket(connection, ticketId, userId, role);
+
+        if (ticket is null)
+        {
+            return null;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                ta.Id,
+                ta.TicketId,
+                ta.FileName,
+                ta.ContentType,
+                ta.FileSizeBytes,
+                ua.FullName,
+                ta.UploadedDate,
+                ta.FilePath
+            FROM TicketAttachment ta
+            INNER JOIN UserAccount ua ON ta.UploadedByUserAccountId = ua.Id
+            WHERE ta.TicketId = @TicketId AND ta.Id = @AttachmentId;
+            """;
+        command.Parameters.AddWithValue("@TicketId", ticketId);
+        command.Parameters.AddWithValue("@AttachmentId", attachmentId);
+
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        var attachment = new AttachmentResponse(
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetInt64(4),
+            reader.GetString(5),
+            reader.GetDateTime(6));
+        var filePath = reader.GetString(7);
+
+        return await Task.FromResult((attachment, filePath));
+    }
+
     private SqlConnection CreateConnection()
     {
         var connection = new SqlConnection(_connectionString);
@@ -458,6 +644,40 @@ public sealed class TicketRepository
             reader.GetString(5),
             reader.GetBoolean(6),
             reader.GetDateTime(7));
+    }
+
+    private static AttachmentResponse? GetAttachment(SqlConnection connection, int attachmentId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                ta.Id,
+                ta.TicketId,
+                ta.FileName,
+                ta.ContentType,
+                ta.FileSizeBytes,
+                ua.FullName,
+                ta.UploadedDate
+            FROM TicketAttachment ta
+            INNER JOIN UserAccount ua ON ta.UploadedByUserAccountId = ua.Id
+            WHERE ta.Id = @AttachmentId;
+            """;
+        command.Parameters.AddWithValue("@AttachmentId", attachmentId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadAttachment(reader) : null;
+    }
+
+    private static AttachmentResponse ReadAttachment(SqlDataReader reader)
+    {
+        return new AttachmentResponse(
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetInt64(4),
+            reader.GetString(5),
+            reader.GetDateTime(6));
     }
 
     private static bool CanViewAllTickets(string role)

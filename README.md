@@ -35,6 +35,19 @@ The latest task adds MVC architecture and ticket workflow features:
 - Store activity logs for audit/history tracking.
 - View ticket comments and activity timeline from React.
 
+## Dashboard, Notifications, and Attachments Scope
+
+The latest task adds:
+
+- Dashboard KPI cards.
+- Recharts analytics charts by status, category, priority, and agent.
+- React Query API data handling.
+- React Hook Form ticket and upload forms.
+- Notification center.
+- SignalR real-time notification hub.
+- File attachments for screenshots and documents.
+- Attachment metadata stored in SQL Server and files stored locally under `backend/Uploads`.
+
 ## Technology Stack
 
 | Layer | Tool |
@@ -79,7 +92,7 @@ cd backend
 dotnet run --urls http://127.0.0.1:5090
 ```
 
-The API will create the `ITHelpDesk` database, roles, demo users, ticket lookups, seed tickets, comments table, and activity log table automatically if they do not already exist.
+The API will create the `ITHelpDesk` database, roles, demo users, ticket lookups, seed tickets, comments table, activity log table, notification table, and attachment table automatically if they do not already exist.
 
 ## Run Frontend
 
@@ -105,6 +118,7 @@ http://localhost:5173
 | POST | `/api/auth/register` | Register a user | Public |
 | GET | `/api/auth/me` | Current logged-in user | JWT required |
 | GET | `/api/dashboard` | Dashboard data | JWT required |
+| GET | `/api/dashboard/analytics` | KPI and chart analytics | JWT required |
 | GET | `/api/admin/users` | User list | Admin role only |
 | GET | `/api/ticket-categories` | Ticket categories | JWT required |
 | GET | `/api/ticket-priorities` | Ticket priorities | JWT required |
@@ -119,6 +133,11 @@ http://localhost:5173
 | POST | `/api/tickets/{id}/comments` | Add comment or internal note | JWT required |
 | GET | `/api/tickets/{id}/activity` | View ticket history/audit trail | JWT required |
 | GET | `/api/agents` | List assignable users | Admin, Agent, Manager |
+| GET | `/api/notifications` | Notification center list | JWT required |
+| POST | `/api/notifications/{id}/read` | Mark notification as read | JWT required |
+| GET | `/api/tickets/{id}/attachments` | List ticket attachments | JWT required |
+| POST | `/api/tickets/{id}/attachments` | Upload screenshot/document | JWT required |
+| GET | `/api/tickets/{ticketId}/attachments/{attachmentId}/download` | Download attachment | JWT required |
 
 ## Postman Login Test
 
@@ -210,3 +229,36 @@ Authorization: Bearer YOUR_TOKEN_HERE
 ```
 
 Managers, agents, and admins can also create internal notes by setting `isInternal` to `true`.
+
+## Attachment Upload Test
+
+Use form-data in Postman:
+
+```http
+POST http://127.0.0.1:5090/api/tickets/1/attachments
+Authorization: Bearer YOUR_TOKEN_HERE
+Content-Type: multipart/form-data
+```
+
+Form-data key:
+
+```text
+file = choose screenshot or document
+```
+
+## Dashboard Analytics Test
+
+```http
+GET http://127.0.0.1:5090/api/dashboard/analytics
+Authorization: Bearer YOUR_TOKEN_HERE
+```
+
+## SignalR Notification Hub
+
+The real-time hub endpoint is:
+
+```text
+http://127.0.0.1:5090/hubs/notifications
+```
+
+The React frontend connects to this hub after login and refreshes the notification center when a notification is received.
