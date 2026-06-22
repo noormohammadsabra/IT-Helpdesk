@@ -27,6 +27,10 @@ const demoAccounts = [
 
 const chartColors = ['#0f6b6e', '#2563eb', '#f59e0b', '#dc2626', '#64748b', '#7c3aed']
 
+const navigationItems = ['Dashboard', 'Tickets', 'Attachments', 'Notifications', 'Reports', 'AI Assistant']
+
+const emptyList = []
+
 const canManageWorkflow = (role) => ['Admin', 'Agent', 'Manager'].includes(role)
 
 async function apiRequest(path, token, options = {}) {
@@ -59,6 +63,11 @@ function App() {
   const [editingTicket, setEditingTicket] = useState(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [activeTab, setActiveTab] = useState('Dashboard')
+  const [ticketSearch, setTicketSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
 
   const {
     register,
@@ -192,7 +201,7 @@ function App() {
     }
   }, [categoriesQuery.data, editingTicket, prioritiesQuery.data, setValue, statusesQuery.data])
 
-  const tickets = ticketsQuery.data ?? []
+  const tickets = ticketsQuery.data ?? emptyList
   const analytics = analyticsQuery.data
   const report = reportsQuery.data
   const notifications = notificationsQuery.data
@@ -208,6 +217,27 @@ function App() {
     () => (notifications ?? []).filter((notification) => !notification.isRead).length,
     [notifications],
   )
+
+  const filteredTickets = useMemo(() => {
+    const search = ticketSearch.trim().toLowerCase()
+
+    return tickets.filter((ticket) => {
+      const matchesSearch = !search
+        || ticket.ticketNumber.toLowerCase().includes(search)
+        || ticket.title.toLowerCase().includes(search)
+        || ticket.description.toLowerCase().includes(search)
+        || ticket.createdByName.toLowerCase().includes(search)
+        || (ticket.assignedAgentName ?? '').toLowerCase().includes(search)
+
+      const matchesStatus = !statusFilter || ticket.statusId === Number(statusFilter)
+      const matchesPriority = !priorityFilter || ticket.priorityId === Number(priorityFilter)
+      const matchesCategory = !categoryFilter || ticket.categoryId === Number(categoryFilter)
+
+      return matchesSearch && matchesStatus && matchesPriority && matchesCategory
+    })
+  }, [categoryFilter, priorityFilter, statusFilter, ticketSearch, tickets])
+
+  const activeTitle = activeTab === 'AI Assistant' ? 'AI support assistant' : activeTab
 
   const login = async (event) => {
     event.preventDefault()
@@ -521,13 +551,21 @@ function App() {
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">IDS Internal</p>
           <h1 className="mt-1 text-xl font-bold text-slate-950">IT Help Desk</h1>
           <nav className="mt-8 space-y-1 text-sm font-medium">
-            {['Dashboard', 'Tickets', 'Attachments', 'Notifications', 'Reports'].map((item) => (
+            {navigationItems.map((item) => (
               <button
-                className="block w-full rounded-md px-3 py-2 text-left text-slate-700 hover:bg-slate-100"
+                className={`block w-full rounded-md px-3 py-2 text-left ${
+                  activeTab === item
+                    ? 'bg-[#e8f6f6] font-bold text-[#0f6b6e]'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
                 key={item}
+                onClick={() => setActiveTab(item)}
                 type="button"
               >
                 {item}
+                {item === 'Notifications' && unreadCount > 0 && (
+                  <span className="ml-2 rounded-full bg-[#0f6b6e] px-2 py-0.5 text-xs text-white">{unreadCount}</span>
+                )}
               </button>
             ))}
           </nav>
@@ -536,8 +574,8 @@ function App() {
         <section className="flex-1 px-5 py-6 sm:px-8">
           <header className="mb-8 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-500">Analytics and notification center</p>
-              <h2 className="text-2xl font-bold text-slate-950">Welcome, {user.fullName}</h2>
+              <p className="text-sm font-medium text-slate-500">Welcome, {user.fullName}</p>
+              <h2 className="text-2xl font-bold text-slate-950">{activeTitle}</h2>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
@@ -556,59 +594,200 @@ function App() {
           {message && <Alert tone="success">{message}</Alert>}
           {error && <Alert tone="error">{error}</Alert>}
 
-          <section className="grid gap-4 sm:grid-cols-5">
-            <SummaryCard label="Total" value={analytics?.totalTickets ?? 0} />
-            <SummaryCard label="Open" value={analytics?.openTickets ?? 0} />
-            <SummaryCard label="In progress" value={analytics?.inProgressTickets ?? 0} />
-            <SummaryCard label="Resolved" value={analytics?.resolvedTickets ?? 0} />
-            <SummaryCard label="Critical" value={analytics?.criticalTickets ?? 0} />
-          </section>
+          <nav className="mb-6 grid grid-cols-2 gap-2 md:hidden">
+            {navigationItems.map((item) => (
+              <button
+                className={`rounded-md px-3 py-2 text-sm font-semibold ${
+                  activeTab === item ? 'bg-[#0f6b6e] text-white' : 'border border-slate-200 bg-white text-slate-700'
+                }`}
+                key={item}
+                onClick={() => setActiveTab(item)}
+                type="button"
+              >
+                {item}
+              </button>
+            ))}
+          </nav>
 
-          <section className="mt-6 grid gap-6 xl:grid-cols-3">
-            <ChartCard title="Tickets by status">
-              <ResponsiveContainer height={220} width="100%">
-                <BarChart data={analytics?.ticketsByStatus ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#0f6b6e" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
+          {activeTab === 'Dashboard' && (
+            <>
+              <section className="grid gap-4 sm:grid-cols-5">
+                <SummaryCard label="Total" value={analytics?.totalTickets ?? 0} />
+                <SummaryCard label="Open" value={analytics?.openTickets ?? 0} />
+                <SummaryCard label="In progress" value={analytics?.inProgressTickets ?? 0} />
+                <SummaryCard label="Resolved" value={analytics?.resolvedTickets ?? 0} />
+                <SummaryCard label="Critical" value={analytics?.criticalTickets ?? 0} />
+              </section>
 
-            <ChartCard title="Tickets by category">
-              <ResponsiveContainer height={220} width="100%">
-                <PieChart>
-                  <Pie data={analytics?.ticketsByCategory ?? []} dataKey="value" nameKey="name" outerRadius={80}>
-                    {(analytics?.ticketsByCategory ?? []).map((entry, index) => (
-                      <Cell fill={chartColors[index % chartColors.length]} key={entry.name} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </ChartCard>
+              <section className="mt-6 grid gap-6 xl:grid-cols-3">
+                <ChartCard title="Tickets by status">
+                  <ResponsiveContainer height={220} width="100%">
+                    <BarChart data={analytics?.ticketsByStatus ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#0f6b6e" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
 
-            <ChartCard title="Tickets by priority">
-              <ResponsiveContainer height={220} width="100%">
-                <BarChart data={analytics?.ticketsByPriority ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          </section>
+                <ChartCard title="Tickets by category">
+                  <ResponsiveContainer height={220} width="100%">
+                    <PieChart>
+                      <Pie data={analytics?.ticketsByCategory ?? []} dataKey="value" nameKey="name" outerRadius={80}>
+                        {(analytics?.ticketsByCategory ?? []).map((entry, index) => (
+                          <Cell fill={chartColors[index % chartColors.length]} key={entry.name} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </ChartCard>
 
-          <section className="mt-6 grid gap-6 xl:grid-cols-[1fr_1.2fr]">
-            <ReportsPanel
-              downloadReport={downloadReport}
-              report={report}
-            />
+                <ChartCard title="Tickets by priority">
+                  <ResponsiveContainer height={220} width="100%">
+                    <BarChart data={analytics?.ticketsByPriority ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              </section>
 
+              <section className="mt-6 grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+                <RecentTicketsPanel selectTicket={setSelectedTicket} setActiveTab={setActiveTab} tickets={tickets.slice(0, 5)} />
+                <SystemSnapshot analytics={analytics} unreadCount={unreadCount} />
+              </section>
+            </>
+          )}
+
+          {activeTab === 'Tickets' && (
+            <>
+              <section className="grid gap-6 xl:grid-cols-[360px_1fr]">
+                <TicketForm
+                  categories={categories}
+                  editingTicket={editingTicket}
+                  handleSubmit={handleSubmit}
+                  isSubmitting={isSubmitting || saveTicketMutation.isPending}
+                  priorities={priorities}
+                  register={register}
+                  resetForm={clearTicketForm}
+                  saveTicket={saveTicketMutation.mutate}
+                  statuses={statuses}
+                />
+
+                <div className="space-y-4">
+                  <TicketFilters
+                    categories={categories}
+                    categoryFilter={categoryFilter}
+                    priorityFilter={priorityFilter}
+                    priorities={priorities}
+                    search={ticketSearch}
+                    setCategoryFilter={setCategoryFilter}
+                    setPriorityFilter={setPriorityFilter}
+                    setSearch={setTicketSearch}
+                    setStatusFilter={setStatusFilter}
+                    statusFilter={statusFilter}
+                    statuses={statuses}
+                  />
+                  <TicketTable
+                    deleteTicket={(ticketId) => deleteTicketMutation.mutate(ticketId)}
+                    editTicket={startEdit}
+                    selectedTicket={selectedTicket}
+                    selectTicket={setSelectedTicket}
+                    tickets={filteredTickets}
+                  />
+                </div>
+              </section>
+
+              {selectedTicket ? (
+                <>
+                  <section className="mt-6 grid gap-6 xl:grid-cols-2">
+                    <WorkflowPanel
+                      agents={agents}
+                      assignTicket={(agentUserId) =>
+                        assignTicketMutation.mutate({ ticketId: selectedTicket.id, agentUserId })
+                      }
+                      canManage={canManageWorkflow(user.role)}
+                      statuses={statuses}
+                      ticket={selectedTicket}
+                      updateStatus={(statusId) =>
+                        updateStatusMutation.mutate({ ticketId: selectedTicket.id, statusId })
+                      }
+                    />
+
+                    <CommentsPanel
+                      addComment={addCommentMutation.mutate}
+                      canCreateInternal={canManageWorkflow(user.role)}
+                      comments={comments}
+                      register={register}
+                      handleSubmit={handleSubmit}
+                    />
+                  </section>
+                  <ActivityHistory activity={activity} />
+                </>
+              ) : (
+                <EmptyState title="Select a ticket" text="Choose a ticket from the table to manage workflow, comments, and history." />
+              )}
+            </>
+          )}
+
+          {activeTab === 'Attachments' && (
+            <section className="grid gap-6 xl:grid-cols-[1fr_420px]">
+              <TicketTable
+                deleteTicket={(ticketId) => deleteTicketMutation.mutate(ticketId)}
+                editTicket={startEdit}
+                selectedTicket={selectedTicket}
+                selectTicket={setSelectedTicket}
+                tickets={tickets}
+              />
+              {selectedTicket ? (
+                <AttachmentsPanel
+                  attachments={attachments}
+                  handleAttachmentSubmit={handleAttachmentSubmit}
+                  registerAttachment={registerAttachment}
+                  selectedTicket={selectedTicket}
+                  token={token}
+                  uploadAttachment={uploadAttachmentMutation.mutate}
+                />
+              ) : (
+                <EmptyState title="No ticket selected" text="Select a ticket to upload screenshots, documents, or logs." />
+              )}
+            </section>
+          )}
+
+          {activeTab === 'Notifications' && (
+            <section className="grid gap-6 xl:grid-cols-[1fr_340px]">
+              <NotificationCenter
+                markRead={(notificationId) => markNotificationReadMutation.mutate(notificationId)}
+                notifications={notifications ?? []}
+              />
+              <SystemSnapshot analytics={analytics} unreadCount={unreadCount} />
+            </section>
+          )}
+
+          {activeTab === 'Reports' && (
+            <section className="grid gap-6 xl:grid-cols-[1fr_420px]">
+              <ReportsPanel downloadReport={downloadReport} report={report} />
+              <ChartCard title="Agent workload">
+                <ResponsiveContainer height={260} width="100%">
+                  <BarChart data={analytics?.ticketsByAgent ?? []}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#7c3aed" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </section>
+          )}
+
+          {activeTab === 'AI Assistant' && (
             <AiAssistantPanel
               aiAnalysis={aiAnalysis}
               analyzeTicket={analyzeTicketMutation.mutate}
@@ -624,82 +803,6 @@ function App() {
               sendChat={chatMutation.mutate}
               selectedTicket={selectedTicket}
             />
-          </section>
-
-          <section className="mt-6 grid gap-6 xl:grid-cols-[360px_1fr_360px]">
-            <TicketForm
-              categories={categories}
-              editingTicket={editingTicket}
-              handleSubmit={handleSubmit}
-              isSubmitting={isSubmitting || saveTicketMutation.isPending}
-              priorities={priorities}
-              register={register}
-              resetForm={clearTicketForm}
-              saveTicket={saveTicketMutation.mutate}
-              statuses={statuses}
-            />
-
-            <TicketTable
-              deleteTicket={(ticketId) => deleteTicketMutation.mutate(ticketId)}
-              editTicket={startEdit}
-              selectedTicket={selectedTicket}
-              selectTicket={setSelectedTicket}
-              tickets={tickets}
-            />
-
-            <NotificationCenter
-              markRead={(notificationId) => markNotificationReadMutation.mutate(notificationId)}
-              notifications={notifications ?? []}
-            />
-          </section>
-
-          {selectedTicket && (
-            <section className="mt-6 grid gap-6 xl:grid-cols-3">
-              <WorkflowPanel
-                agents={agents}
-                assignTicket={(agentUserId) =>
-                  assignTicketMutation.mutate({ ticketId: selectedTicket.id, agentUserId })
-                }
-                canManage={canManageWorkflow(user.role)}
-                statuses={statuses}
-                ticket={selectedTicket}
-                updateStatus={(statusId) =>
-                  updateStatusMutation.mutate({ ticketId: selectedTicket.id, statusId })
-                }
-              />
-
-              <CommentsPanel
-                addComment={addCommentMutation.mutate}
-                canCreateInternal={canManageWorkflow(user.role)}
-                comments={comments}
-                register={register}
-                handleSubmit={handleSubmit}
-              />
-
-              <AttachmentsPanel
-                attachments={attachments}
-                handleAttachmentSubmit={handleAttachmentSubmit}
-                registerAttachment={registerAttachment}
-                selectedTicket={selectedTicket}
-                token={token}
-                uploadAttachment={uploadAttachmentMutation.mutate}
-              />
-            </section>
-          )}
-
-          {selectedTicket && (
-            <section className="mt-6 rounded-md border border-slate-200 bg-white p-5">
-              <h3 className="text-base font-semibold text-slate-950">Activity history</h3>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {activity.map((item) => (
-                  <div className="border-l-2 border-[#0f6b6e] pl-3" key={item.id}>
-                    <p className="text-sm font-semibold text-slate-950">{item.actionName}</p>
-                    <p className="text-sm text-slate-600">{item.actionDetails}</p>
-                    <p className="mt-1 text-xs text-slate-500">By {item.actorName}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
           )}
         </section>
       </div>
@@ -752,6 +855,148 @@ function ReportsPanel({ downloadReport, report }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+  )
+}
+
+function RecentTicketsPanel({ selectTicket, setActiveTab, tickets }) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-slate-950">Recent tickets</h3>
+          <p className="mt-1 text-sm text-slate-500">Latest support requests in the system.</p>
+        </div>
+        <button className="table-action" onClick={() => setActiveTab('Tickets')} type="button">
+          View all
+        </button>
+      </div>
+      <div className="mt-4 space-y-3">
+        {tickets.map((ticket) => (
+          <button
+            className="w-full rounded-md border border-slate-200 bg-slate-50 p-3 text-left hover:bg-slate-100"
+            key={ticket.id}
+            onClick={() => {
+              selectTicket(ticket)
+              setActiveTab('Tickets')
+            }}
+            type="button"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold text-slate-950">{ticket.ticketNumber}</p>
+              <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-600">
+                {ticket.statusName}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-slate-700">{ticket.title}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {ticket.priorityName} priority · {ticket.categoryName}
+            </p>
+          </button>
+        ))}
+        {tickets.length === 0 && <p className="text-sm text-slate-500">No tickets available yet.</p>}
+      </div>
+    </section>
+  )
+}
+
+function SystemSnapshot({ analytics, unreadCount }) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-5">
+      <h3 className="text-base font-semibold text-slate-950">System snapshot</h3>
+      <div className="mt-4 grid gap-3">
+        <MiniMetric label="Unread alerts" value={unreadCount} />
+        <MiniMetric label="Open workload" value={(analytics?.openTickets ?? 0) + (analytics?.inProgressTickets ?? 0)} />
+        <MiniMetric label="Critical focus" value={analytics?.criticalTickets ?? 0} />
+      </div>
+    </section>
+  )
+}
+
+function TicketFilters({
+  categories,
+  categoryFilter,
+  priorities,
+  priorityFilter,
+  search,
+  setCategoryFilter,
+  setPriorityFilter,
+  setSearch,
+  setStatusFilter,
+  statusFilter,
+  statuses,
+}) {
+  const clearFilters = () => {
+    setSearch('')
+    setStatusFilter('')
+    setPriorityFilter('')
+    setCategoryFilter('')
+  }
+
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-5">
+      <div className="grid gap-3 lg:grid-cols-[1.3fr_1fr_1fr_1fr_auto]">
+        <label className="block text-sm font-semibold text-slate-700">
+          Search
+          <input
+            className="form-control"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Ref, title, user, agent"
+            value={search}
+          />
+        </label>
+        <FilterSelect label="Status" onChange={setStatusFilter} options={statuses} value={statusFilter} />
+        <FilterSelect label="Priority" onChange={setPriorityFilter} options={priorities} value={priorityFilter} />
+        <FilterSelect label="Category" onChange={setCategoryFilter} options={categories} value={categoryFilter} />
+        <div className="flex items-end">
+          <button className="table-action w-full" onClick={clearFilters} type="button">
+            Clear
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function FilterSelect({ label, onChange, options, value }) {
+  return (
+    <label className="block text-sm font-semibold text-slate-700">
+      {label}
+      <select className="form-control" onChange={(event) => onChange(event.target.value)} value={value}>
+        <option value="">All</option>
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function EmptyState({ text, title }) {
+  return (
+    <section className="rounded-md border border-dashed border-slate-300 bg-white p-8 text-center">
+      <h3 className="text-base font-semibold text-slate-950">{title}</h3>
+      <p className="mt-2 text-sm text-slate-500">{text}</p>
+    </section>
+  )
+}
+
+function ActivityHistory({ activity }) {
+  return (
+    <section className="mt-6 rounded-md border border-slate-200 bg-white p-5">
+      <h3 className="text-base font-semibold text-slate-950">Activity history</h3>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {activity.map((item) => (
+          <div className="border-l-2 border-[#0f6b6e] pl-3" key={item.id}>
+            <p className="text-sm font-semibold text-slate-950">{item.actionName}</p>
+            <p className="text-sm text-slate-600">{item.actionDetails}</p>
+            <p className="mt-1 text-xs text-slate-500">By {item.actorName}</p>
+          </div>
+        ))}
+        {activity.length === 0 && <p className="text-sm text-slate-500">No activity recorded yet.</p>}
       </div>
     </section>
   )
