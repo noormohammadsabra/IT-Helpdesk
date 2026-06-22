@@ -67,6 +67,8 @@ builder.Services.AddSingleton<DatabaseInitializer>();
 builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<TicketRepository>();
 builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<ReportExportService>();
+builder.Services.AddSingleton<AiAssistantService>();
 
 var app = builder.Build();
 

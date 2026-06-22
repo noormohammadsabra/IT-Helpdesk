@@ -48,6 +48,21 @@ The latest task adds:
 - File attachments for screenshots and documents.
 - Attachment metadata stored in SQL Server and files stored locally under `backend/Uploads`.
 
+## Reports and AI Scope
+
+The final internship task adds:
+
+- Report summary endpoint for ticket KPIs and recent ticket data.
+- PDF report export.
+- Excel-compatible report export.
+- AI ticket categorization.
+- AI priority detection.
+- AI-generated ticket summary.
+- AI troubleshooting suggestions.
+- AI chatbot assistant for support guidance.
+
+The AI features are implemented as a local rule-based assistant so the project works without paid API keys. The design can later be connected to OpenAI, Azure OpenAI, or Ollama by replacing the local assistant service.
+
 ## Technology Stack
 
 | Layer | Tool |
@@ -138,6 +153,11 @@ http://localhost:5173
 | GET | `/api/tickets/{id}/attachments` | List ticket attachments | JWT required |
 | POST | `/api/tickets/{id}/attachments` | Upload screenshot/document | JWT required |
 | GET | `/api/tickets/{ticketId}/attachments/{attachmentId}/download` | Download attachment | JWT required |
+| GET | `/api/reports/summary` | Report KPIs and recent tickets | JWT required |
+| GET | `/api/reports/export/pdf` | Export report as PDF | JWT required |
+| GET | `/api/reports/export/excel` | Export report as Excel-compatible file | JWT required |
+| POST | `/api/ai/ticket-analysis` | Suggest category, priority, summary, and troubleshooting | JWT required |
+| POST | `/api/ai/chat` | Chatbot assistant response | JWT required |
 
 ## Postman Login Test
 

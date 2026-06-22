@@ -118,3 +118,33 @@ public sealed record DashboardAnalyticsResponse(
     IReadOnlyList<ChartPoint> TicketsByAgent);
 
 public sealed record ChartPoint(string Name, int Value);
+
+public sealed record ReportSummaryResponse(
+    DateTime GeneratedAt,
+    int TotalTickets,
+    int OpenTickets,
+    int InProgressTickets,
+    int PendingTickets,
+    int ResolvedTickets,
+    int ClosedTickets,
+    int CriticalTickets,
+    IReadOnlyList<ChartPoint> TicketsByStatus,
+    IReadOnlyList<ChartPoint> TicketsByCategory,
+    IReadOnlyList<ChartPoint> TicketsByPriority,
+    IReadOnlyList<ChartPoint> TicketsByAgent,
+    IReadOnlyList<TicketResponse> RecentTickets);
+
+public sealed record AiTicketAnalysisRequest(string Title, string Description);
+
+public sealed record AiTicketAnalysisResponse(
+    string SuggestedCategory,
+    string SuggestedPriority,
+    string Summary,
+    string TroubleshootingSuggestion,
+    int ConfidenceScore);
+
+public sealed record AiChatRequest(string Message, int? TicketId);
+
+public sealed record AiChatResponse(
+    string Reply,
+    IReadOnlyList<string> SuggestedActions);

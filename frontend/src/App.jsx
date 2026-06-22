@@ -73,12 +73,30 @@ function App() {
     handleSubmit: handleAttachmentSubmit,
     reset: resetAttachment,
   } = useForm()
+  const {
+    register: registerAi,
+    handleSubmit: handleAiSubmit,
+    reset: resetAi,
+  } = useForm()
+  const {
+    register: registerChat,
+    handleSubmit: handleChatSubmit,
+    reset: resetChat,
+  } = useForm()
 
   const isLoggedIn = Boolean(token && user)
+  const [aiAnalysis, setAiAnalysis] = useState(null)
+  const [chatReply, setChatReply] = useState(null)
 
   const analyticsQuery = useQuery({
     queryKey: ['analytics', token],
     queryFn: () => apiRequest('/api/dashboard/analytics', token),
+    enabled: isLoggedIn,
+  })
+
+  const reportsQuery = useQuery({
+    queryKey: ['reports', token],
+    queryFn: () => apiRequest('/api/reports/summary', token),
     enabled: isLoggedIn,
   })
 
@@ -176,6 +194,7 @@ function App() {
 
   const tickets = ticketsQuery.data ?? []
   const analytics = analyticsQuery.data
+  const report = reportsQuery.data
   const notifications = notificationsQuery.data
   const categories = categoriesQuery.data ?? []
   const priorities = prioritiesQuery.data ?? []
@@ -319,9 +338,43 @@ function App() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   })
 
+  const analyzeTicketMutation = useMutation({
+    mutationFn: (formData) =>
+      apiRequest('/api/ai/ticket-analysis', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: formData.aiTitle,
+          description: formData.aiDescription,
+        }),
+      }),
+    onSuccess: (analysis) => {
+      setAiAnalysis(analysis)
+      setMessage('AI ticket analysis generated.')
+    },
+    onError: () => setError('AI ticket analysis could not be generated.'),
+  })
+
+  const chatMutation = useMutation({
+    mutationFn: (formData) =>
+      apiRequest('/api/ai/chat', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          message: formData.chatMessage,
+          ticketId: selectedTicket?.id ?? null,
+        }),
+      }),
+    onSuccess: (reply) => {
+      setChatReply(reply)
+      resetChat({ chatMessage: '' })
+      setMessage('AI assistant replied.')
+    },
+    onError: () => setError('AI assistant could not reply.'),
+  })
+
   const refreshWorkspace = () => {
     queryClient.invalidateQueries({ queryKey: ['tickets'] })
     queryClient.invalidateQueries({ queryKey: ['analytics'] })
+    queryClient.invalidateQueries({ queryKey: ['reports'] })
     queryClient.invalidateQueries({ queryKey: ['notifications'] })
     if (selectedTicket) {
       queryClient.invalidateQueries({ queryKey: ['comments', selectedTicket.id] })
@@ -353,11 +406,57 @@ function App() {
     })
   }
 
+  const applyAiSuggestion = () => {
+    if (!aiAnalysis) {
+      return
+    }
+
+    const suggestedCategory = categories.find((category) => category.name === aiAnalysis.suggestedCategory)
+    const suggestedPriority = priorities.find((priority) => priority.name === aiAnalysis.suggestedPriority)
+
+    if (suggestedCategory) {
+      setValue('categoryId', suggestedCategory.id)
+    }
+
+    if (suggestedPriority) {
+      setValue('priorityId', suggestedPriority.id)
+    }
+
+    setMessage('AI category and priority suggestions applied to the ticket form.')
+  }
+
+  const downloadReport = async (format) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports/export/${format}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (!response.ok) {
+        throw new Error('Report download failed.')
+      }
+
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = format === 'pdf' ? 'helpdesk-report.pdf' : 'helpdesk-report.xls'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      setMessage(`${format.toUpperCase()} report downloaded.`)
+    } catch {
+      setError('Report could not be downloaded.')
+    }
+  }
+
   const logout = () => {
     setToken('')
     setUser(null)
     setSelectedTicket(null)
     setEditingTicket(null)
+    setAiAnalysis(null)
+    setChatReply(null)
     setMessage('')
     setError('')
     queryClient.clear()
@@ -504,6 +603,29 @@ function App() {
             </ChartCard>
           </section>
 
+          <section className="mt-6 grid gap-6 xl:grid-cols-[1fr_1.2fr]">
+            <ReportsPanel
+              downloadReport={downloadReport}
+              report={report}
+            />
+
+            <AiAssistantPanel
+              aiAnalysis={aiAnalysis}
+              analyzeTicket={analyzeTicketMutation.mutate}
+              applyAiSuggestion={applyAiSuggestion}
+              chatReply={chatReply}
+              handleAiSubmit={handleAiSubmit}
+              handleChatSubmit={handleChatSubmit}
+              isAnalyzing={analyzeTicketMutation.isPending}
+              isChatting={chatMutation.isPending}
+              registerAi={registerAi}
+              registerChat={registerChat}
+              resetAi={resetAi}
+              sendChat={chatMutation.mutate}
+              selectedTicket={selectedTicket}
+            />
+          </section>
+
           <section className="mt-6 grid gap-6 xl:grid-cols-[360px_1fr_360px]">
             <TicketForm
               categories={categories}
@@ -585,6 +707,156 @@ function App() {
   )
 }
 
+function ReportsPanel({ downloadReport, report }) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-slate-950">Reports export</h3>
+          <p className="mt-1 text-sm text-slate-500">Download ticket performance reports for review.</p>
+        </div>
+        <div className="flex gap-2">
+          <button className="workflow-button" onClick={() => downloadReport('pdf')} type="button">
+            PDF
+          </button>
+          <button className="workflow-button" onClick={() => downloadReport('excel')} type="button">
+            Excel
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <MiniMetric label="Pending" value={report?.pendingTickets ?? 0} />
+        <MiniMetric label="Closed" value={report?.closedTickets ?? 0} />
+        <MiniMetric label="Recent" value={report?.recentTickets?.length ?? 0} />
+      </div>
+
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[620px] text-left text-sm">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              <th className="px-3 py-2">Ref</th>
+              <th className="px-3 py-2">Title</th>
+              <th className="px-3 py-2">Priority</th>
+              <th className="px-3 py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {(report?.recentTickets ?? []).slice(0, 5).map((ticket) => (
+              <tr key={ticket.id}>
+                <td className="px-3 py-2 font-semibold">{ticket.ticketNumber}</td>
+                <td className="px-3 py-2">{ticket.title}</td>
+                <td className="px-3 py-2">{ticket.priorityName}</td>
+                <td className="px-3 py-2">{ticket.statusName}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function AiAssistantPanel({
+  aiAnalysis,
+  analyzeTicket,
+  applyAiSuggestion,
+  chatReply,
+  handleAiSubmit,
+  handleChatSubmit,
+  isAnalyzing,
+  isChatting,
+  registerAi,
+  registerChat,
+  resetAi,
+  sendChat,
+  selectedTicket,
+}) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-5">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-base font-semibold text-slate-950">AI support assistant</h3>
+        <p className="text-sm text-slate-500">
+          Local AI-style recommendations for category, priority, summaries, and troubleshooting.
+        </p>
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <form onSubmit={handleAiSubmit(analyzeTicket)}>
+          <FormInput label="Ticket title" registration={registerAi('aiTitle', { required: true })} />
+          <FormTextarea label="Ticket description" registration={registerAi('aiDescription', { required: true })} />
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button className="workflow-button" disabled={isAnalyzing} type="submit">
+              Analyze
+            </button>
+            <button className="table-action" onClick={() => resetAi()} type="button">
+              Clear
+            </button>
+          </div>
+        </form>
+
+        <form onSubmit={handleChatSubmit(sendChat)}>
+          <label className="mt-4 block text-sm font-semibold text-slate-700">
+            Ask assistant
+            <textarea
+              className="form-control min-h-24"
+              placeholder={selectedTicket ? `Ask about ${selectedTicket.ticketNumber}` : 'Ask for troubleshooting help'}
+              required
+              {...registerChat('chatMessage', { required: true })}
+            />
+          </label>
+          <button className="mt-4 workflow-button" disabled={isChatting} type="submit">
+            Send
+          </button>
+        </form>
+      </div>
+
+      {(aiAnalysis || chatReply) && (
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          {aiAnalysis && (
+            <article className="rounded-md border border-[#b8dede] bg-[#f0fbfb] p-4">
+              <p className="text-sm font-semibold text-slate-950">Ticket analysis</p>
+              <dl className="mt-3 space-y-2 text-sm text-slate-700">
+                <div className="flex justify-between gap-4">
+                  <dt>Category</dt>
+                  <dd className="font-semibold">{aiAnalysis.suggestedCategory}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt>Priority</dt>
+                  <dd className="font-semibold">{aiAnalysis.suggestedPriority}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt>Confidence</dt>
+                  <dd className="font-semibold">{aiAnalysis.confidenceScore}%</dd>
+                </div>
+              </dl>
+              <p className="mt-3 text-sm text-slate-700">{aiAnalysis.summary}</p>
+              <p className="mt-2 text-sm text-slate-600">{aiAnalysis.troubleshootingSuggestion}</p>
+              <button className="mt-4 workflow-button" onClick={applyAiSuggestion} type="button">
+                Use suggestion
+              </button>
+            </article>
+          )}
+
+          {chatReply && (
+            <article className="rounded-md border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-950">Assistant reply</p>
+              <p className="mt-3 text-sm text-slate-700">{chatReply.reply}</p>
+              <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                {chatReply.suggestedActions.map((action) => (
+                  <li className="rounded-md bg-white px-3 py-2" key={action}>
+                    {action}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function TicketForm({
   categories,
   editingTicket,
@@ -617,6 +889,15 @@ function TicketForm({
         )}
       </div>
     </form>
+  )
+}
+
+function MiniMetric({ label, value }) {
+  return (
+    <article className="rounded-md border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-slate-950">{value}</p>
+    </article>
   )
 }
 
