@@ -80,7 +80,33 @@ IT-Helpdesk/
 +-- frontend/   React user interface
 +-- backend/    ASP.NET Core Web API
 +-- database/   SQL setup scripts
++-- docs/       Deployment and project documentation
 +-- README.md
+```
+
+## Deployment Status
+
+The application is prepared for deployment. A real public deployment requires private hosting credentials such as Azure, IIS, Vercel, Netlify, or company server access. Since those credentials are not included in the repository, this submission provides the complete deployment preparation:
+
+- Frontend production build setup.
+- Backend publish instructions.
+- SQL Server hosting configuration example.
+- Environment variable examples.
+- Local demo deployment steps.
+- Production hosting plan.
+- Post-deployment smoke tests.
+
+Deployment guide:
+
+```text
+docs/DEPLOYMENT.md
+```
+
+Production configuration examples:
+
+```text
+frontend/.env.example
+backend/appsettings.Production.example.json
 ```
 
 ## Demo Users
@@ -123,6 +149,29 @@ Open:
 
 ```text
 http://localhost:5173
+```
+
+## Production Build Commands
+
+Build frontend:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Build/publish backend:
+
+```bash
+cd backend
+dotnet publish -c Release -o publish
+```
+
+For full hosting details, see:
+
+```text
+docs/DEPLOYMENT.md
 ```
 
 ## Main API Endpoints
